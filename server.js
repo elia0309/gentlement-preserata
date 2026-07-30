@@ -181,9 +181,53 @@ async function handleApi(request, response, url) {
       return;
     }
 
+    const incomingState = body.state || {};
+    const nextState = player.isHost
+      ? {
+          ...room.state,
+          ...incomingState,
+        }
+      : {
+          ...room.state,
+        };
+
+    if (!player.isHost) {
+      [
+        "votesByPlayer",
+        "gentlemanDayAnswersByPlayer",
+        "gentlemanDayPitAnswersByPlayer",
+        "gentlementAnswersByPlayer",
+        "bonusCorrectPlayers",
+        "bonusReactionTimes",
+        "bonusAnswerLockedUntil",
+        "penaltyCounts",
+        "shotCounts",
+        "drinkCounts",
+      ].forEach((key) => {
+        if (incomingState[key] && typeof incomingState[key] === "object") {
+          nextState[key] = {
+            ...(room.state[key] || {}),
+            ...incomingState[key],
+          };
+        }
+      });
+
+      [
+        "wheelRotation",
+        "gentlementExtracted",
+        "currentGentlement",
+        "currentWheelPenalty",
+        "extractedGentlements",
+        "currentChallengePlayer",
+      ].forEach((key) => {
+        if (typeof incomingState[key] !== "undefined") {
+          nextState[key] = incomingState[key];
+        }
+      });
+    }
+
     room.state = {
-      ...room.state,
-      ...(body.state || {}),
+      ...nextState,
       players: room.players.map((roomPlayer) => roomPlayer.name),
       updatedAt: Date.now(),
     };

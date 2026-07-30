@@ -1010,6 +1010,8 @@ let roundEndsAt = 0;
 let multiplayerPollId = null;
 let multiplayerRoomVersion = 0;
 let isApplyingRemoteState = false;
+let audioUnlocked = false;
+let lastSharedScreenName = "";
 let lobbySeatAssignments = {};
 let bonusPlayed = false;
 let gentlemanDayPlayed = false;
@@ -1062,6 +1064,7 @@ let penaltyScored = false;
 let wheelRotation = 0;
 let gentlementExtracted = false;
 let currentGentlement = "";
+let currentWheelPenalty = "";
 let extractedGentlements = [];
 let currentChallengePlayer = "";
 let drumAudioContext = null;
@@ -1072,6 +1075,12 @@ let gentlemanDayIntroMusicIntervalId = null;
 let gentlemanDayIntroMasterGain = null;
 let gentlemanDayIntroBeatStep = 0;
 let gentlemanDayIntroTimeoutId = null;
+let gentlemanDayDrawTimeoutId = null;
+let gentlemanDayPitFlameFallbackId = null;
+let gentlemanDayPitVideoFallbackId = null;
+let bonusIntroFallbackId = null;
+let gentlementIntroFallbackId = null;
+let podiumSuspenseFallbackId = null;
 let podiumTimeoutId = null;
 let podiumRevealTimeoutIds = [];
 let usedMainQuestionIndexesByMode = { omini: [], completa: [] };
@@ -1240,6 +1249,8 @@ function getSharedState(extraState = {}) {
     currentBonusPlayers,
     bonusQuestionRevealed,
     bonusWinner,
+    bonusAnswerLockedUntil,
+    bonusQuestionRevealedAt,
     bonusReactionTimes,
     bonusCorrectPlayers,
     bonusPenaltyScored,
@@ -1248,6 +1259,7 @@ function getSharedState(extraState = {}) {
     wheelRotation,
     gentlementExtracted,
     currentGentlement,
+    currentWheelPenalty,
     extractedGentlements,
     currentChallengePlayer,
     usedMainQuestionIndexesByMode,
@@ -1285,7 +1297,42 @@ function applyObjectValue(targetName, value) {
   }
 }
 
-function renderSharedScreen() {
+function playVisibleMedia(media, { reset = false, volume = null } = {}) {
+  if (!media) return;
+  if (typeof volume === "number") media.volume = volume;
+  if (reset) media.currentTime = 0;
+  if (media.paused || media.ended) {
+    media.play().catch(() => {});
+  }
+}
+
+function scheduleHostVideoFallback(video, screenName, callback, fallbackMs, fallbackSetter) {
+  if (!isHost) return;
+  const durationMs = Number.isFinite(video?.duration) && video.duration > 0
+    ? Math.ceil(video.duration * 1000) + 800
+    : fallbackMs;
+  const timeoutId = setTimeout(() => {
+    if (isHost && currentScreenName === screenName) callback();
+  }, durationMs);
+  fallbackSetter(timeoutId);
+}
+
+function renderGentlementPhotoScreen() {
+  gentlementRoundLabel.textContent = `Foto ${gentlementGameRound}/${gentlementGameTotalRounds}`;
+  gentlementPhotoTimer.textContent = gentlementPhotoSeconds;
+
+  if (currentGentlementPhoto?.src) {
+    gentlementPhoto.src = currentGentlementPhoto.src;
+    gentlementPhoto.classList.remove("hidden");
+    gentlementPhotoPlaceholder.classList.add("hidden");
+  } else {
+    gentlementPhoto.removeAttribute("src");
+    gentlementPhoto.classList.add("hidden");
+    gentlementPhotoPlaceholder.classList.remove("hidden");
+  }
+}
+
+function renderSharedScreen(screenChanged = false) {
   selectedModeText.textContent = selectedMode === "omini" ? "Solo maschi" : "Completa";
   roomCodeText.textContent = currentRoomCode;
   startGameButton.classList.toggle("hidden", !isHost);
@@ -1300,6 +1347,74 @@ function renderSharedScreen() {
     startSyncedTimer();
   }
 
+  if (screenChanged && currentScreenName === "gentlemanDayIntro") {
+    playVisibleMedia(gentlemanDayIntroAudio, { volume: 0.42 });
+  }
+
+  if (currentScreenName === "gentlemanDayDraw") {
+    renderGentlemanDayDrawScreen();
+  }
+
+  if (currentScreenName === "gentlemanDayQuestion") {
+    renderGentlemanDayQuestionScreen();
+    if (screenChanged) startGentlemanDayAnswerTimer();
+  }
+
+  if (currentScreenName === "gentlemanDayResult") {
+    renderGentlemanDayResultScreen();
+  }
+
+  if (screenChanged && currentScreenName === "gentlemanDayPitFlame") {
+    playVisibleMedia(gentlemanDayPitFlameVideo, { volume: 0.9 });
+  }
+
+  if (screenChanged && currentScreenName === "gentlemanDayPitVideo") {
+    playVisibleMedia(gentlemanDayPitVideo, { volume: 1 });
+  }
+
+  if (currentScreenName === "gentlemanDayPitQuestion") {
+    renderGentlemanDayPitQuestionScreen();
+  }
+
+  if (currentScreenName === "gentlemanDayPitResult") {
+    renderGentlemanDayPitResultScreen();
+  }
+
+  if (screenChanged && currentScreenName === "bonusIntro") {
+    playVisibleMedia(bonusIntroVideoBg);
+    playVisibleMedia(bonusIntroVideo, { volume: 1 });
+  }
+
+  if (currentScreenName === "bonus") {
+    renderBonusScreen();
+  }
+
+  if (screenChanged && currentScreenName === "bonusResult") {
+    renderBonusResult();
+  }
+
+  if (currentScreenName === "gentlementPhoto") {
+    renderGentlementPhotoScreen();
+    if (screenChanged) {
+      playGentlementPhotoAudio();
+      startGentlementQuizMusic();
+      startGentlementPhotoTimer();
+    }
+  }
+
+  if (screenChanged && currentScreenName === "gentlementIntro") {
+    playVisibleMedia(gentlementIntroVideo);
+  }
+
+  if (currentScreenName === "gentlementAnswers") {
+    renderGentlementAnswersScreen();
+    if (screenChanged) startGentlementAnswerTimer();
+  }
+
+  if (currentScreenName === "gentlementResult") {
+    renderGentlementResult();
+  }
+
   if (currentScreenName === "results") renderResults();
   if (currentScreenName === "penalty") renderPenalty();
   if (currentScreenName === "unanimousPenalty") {
@@ -1308,10 +1423,37 @@ function renderSharedScreen() {
     continueGameUnanimousButton.classList.toggle("hidden", !isHost);
     unanimousSlotText.innerHTML = "1 SHOT PER TUTTI<br>CACONI";
   }
+
+  if (screenChanged && currentScreenName === "podium") {
+    playVisibleMedia(podiumSuspenseVideo, { reset: true, volume: 1 });
+  }
+
+  if (screenChanged && currentScreenName === "podiumFinal") {
+    renderPodiumFinal();
+    playPodiumRevealMusic();
+  }
+
+  if (currentScreenName === "end") {
+    renderFinalRanking();
+  }
+
+  if (currentScreenName === "wheel") {
+    renderFinalWheelScreen();
+  }
 }
 
 function applyRoomPayload(room, playerId = currentPlayerId) {
-  if (!room || room.version <= multiplayerRoomVersion) return;
+  if (!room || room.version < multiplayerRoomVersion) return;
+  if (room.version === multiplayerRoomVersion) {
+    const remoteScreen = room.state?.screen;
+    if (!isHost && remoteScreen && remoteScreen !== currentScreenName) {
+      isApplyingRemoteState = true;
+      setScreen(remoteScreen);
+      renderSharedScreen(true);
+      isApplyingRemoteState = false;
+    }
+    return;
+  }
 
   isApplyingRemoteState = true;
   multiplayerRoomVersion = room.version;
@@ -1358,6 +1500,8 @@ function applyRoomPayload(room, playerId = currentPlayerId) {
   currentBonusPlayers = remoteState.currentBonusPlayers || [];
   bonusQuestionRevealed = Boolean(remoteState.bonusQuestionRevealed);
   bonusWinner = remoteState.bonusWinner || "";
+  bonusAnswerLockedUntil = remoteState.bonusAnswerLockedUntil || {};
+  bonusQuestionRevealedAt = remoteState.bonusQuestionRevealedAt || bonusQuestionRevealedAt;
   bonusReactionTimes = remoteState.bonusReactionTimes || {};
   bonusCorrectPlayers = remoteState.bonusCorrectPlayers || {};
   bonusPenaltyScored = Boolean(remoteState.bonusPenaltyScored);
@@ -1366,6 +1510,7 @@ function applyRoomPayload(room, playerId = currentPlayerId) {
   wheelRotation = remoteState.wheelRotation || 0;
   gentlementExtracted = Boolean(remoteState.gentlementExtracted);
   currentGentlement = remoteState.currentGentlement || "";
+  currentWheelPenalty = remoteState.currentWheelPenalty || "";
   extractedGentlements = remoteState.extractedGentlements || [];
   currentChallengePlayer = remoteState.currentChallengePlayer || "";
   usedMainQuestionIndexesByMode = remoteState.usedMainQuestionIndexesByMode || usedMainQuestionIndexesByMode;
@@ -1381,14 +1526,27 @@ function applyRoomPayload(room, playerId = currentPlayerId) {
   applyObjectValue("correctCounts", remoteState.correctCounts);
 
   const nextScreen = remoteState.screen || "lobby";
+  const screenChanged = nextScreen !== currentScreenName || nextScreen !== lastSharedScreenName;
   if (nextScreen !== currentScreenName) {
     setScreen(nextScreen);
   }
 
-  renderSharedScreen();
+  renderSharedScreen(screenChanged);
+  lastSharedScreenName = nextScreen;
 
   if (isHost && currentScreenName === "game" && getAnsweredPlayers().length === players.length && players.length > 0) {
     finishRound();
+  }
+
+  if (
+    isHost
+    && currentScreenName === "bonus"
+    && bonusQuestionRevealed
+    && !bonusWinner
+    && currentBonusPlayers.length > 0
+    && getAllBonusPlayersAnsweredCorrectly()
+  ) {
+    scheduleBonusResult();
   }
 
   isApplyingRemoteState = false;
@@ -2073,6 +2231,7 @@ function renderPodiumFinal() {
 }
 
 function showFinalPodium() {
+  if (!isHost) return;
   clearTimeout(podiumTimeoutId);
   podiumTimeoutId = null;
   stopDrumSound();
@@ -2124,12 +2283,23 @@ function saveReview() {
 }
 
 function showPodiumSuspense() {
+  if (!isHost) return;
   setScreen("podium");
   clearTimeout(podiumTimeoutId);
   podiumTimeoutId = null;
   podiumSuspenseVideo.currentTime = 0;
   podiumSuspenseVideo.volume = 1;
   podiumSuspenseVideo.play().catch(() => {});
+  clearTimeout(podiumSuspenseFallbackId);
+  scheduleHostVideoFallback(
+    podiumSuspenseVideo,
+    "podium",
+    showFinalPodium,
+    9000,
+    (timeoutId) => {
+      podiumSuspenseFallbackId = timeoutId;
+    },
+  );
 }
 
 function setScreen(screenName) {
@@ -2162,6 +2332,8 @@ function setScreen(screenName) {
   reviewScreen.classList.toggle("hidden", screenName !== "review");
 
   if (screenName !== "podium") {
+    clearTimeout(podiumSuspenseFallbackId);
+    podiumSuspenseFallbackId = null;
     clearTimeout(podiumTimeoutId);
     podiumTimeoutId = null;
     podiumSuspenseVideo.pause();
@@ -2190,12 +2362,16 @@ function setScreen(screenName) {
   if (screenName !== "gentlemanDayIntro") {
     clearTimeout(gentlemanDayIntroTimeoutId);
     gentlemanDayIntroTimeoutId = null;
+    clearTimeout(gentlemanDayDrawTimeoutId);
+    gentlemanDayDrawTimeoutId = null;
     gentlemanDayIntroAudio.pause();
     gentlemanDayIntroAudio.currentTime = 0;
     stopGentlemanDayIntroMusic();
   }
 
   if (screenName !== "bonusIntro") {
+    clearTimeout(bonusIntroFallbackId);
+    bonusIntroFallbackId = null;
     bonusIntroVideo.pause();
     bonusIntroVideoBg.pause();
   }
@@ -2211,14 +2387,20 @@ function setScreen(screenName) {
   }
 
   if (screenName !== "gentlemanDayPitFlame") {
+    clearTimeout(gentlemanDayPitFlameFallbackId);
+    gentlemanDayPitFlameFallbackId = null;
     gentlemanDayPitFlameVideo.pause();
   }
 
   if (screenName !== "gentlemanDayPitVideo") {
+    clearTimeout(gentlemanDayPitVideoFallbackId);
+    gentlemanDayPitVideoFallbackId = null;
     gentlemanDayPitVideo.pause();
   }
 
   if (screenName !== "gentlementIntro") {
+    clearTimeout(gentlementIntroFallbackId);
+    gentlementIntroFallbackId = null;
     gentlementIntroVideo.pause();
   }
 
@@ -2246,6 +2428,65 @@ function setScreen(screenName) {
   if (isHost && !isApplyingRemoteState) {
     publishSharedState();
   }
+}
+
+function unlockGameAudio() {
+  if (audioUnlocked) return;
+  audioUnlocked = true;
+
+  [
+    lobbyMusic,
+    gameQuestionMusic,
+    gentlemanDayIntroAudio,
+    gentlementFirstPhotoAudio,
+    gentlementSecondPhotoAudio,
+    gentlementPhotoAudio,
+    gentlementThirdPhotoAudio,
+    podiumFirstPlaceAudio,
+    podiumRevealMusic,
+  ].forEach((audio) => {
+    if (!audio) return;
+    const originalVolume = audio.volume;
+    audio.volume = 0;
+    audio.play()
+      .then(() => {
+        audio.pause();
+        audio.currentTime = 0;
+        audio.volume = originalVolume;
+      })
+      .catch(() => {
+        audio.volume = originalVolume;
+      });
+  });
+
+  [
+    gentlementIntroVideo,
+    bonusIntroVideo,
+    bonusIntroVideoBg,
+    gentlemanDayPitFlameVideo,
+    gentlemanDayPitVideo,
+    podiumSuspenseVideo,
+  ].forEach((video) => {
+    if (!video) return;
+    const wasMuted = video.muted;
+    video.muted = true;
+    video.play()
+      .then(() => {
+        video.pause();
+        video.currentTime = 0;
+        video.muted = wasMuted;
+      })
+      .catch(() => {
+        video.muted = wasMuted;
+      });
+  });
+
+  [
+    gentlementQuizAudioContext,
+    gentlemanDayIntroAudioContext,
+    drumAudioContext,
+    podiumRevealAudioContext,
+  ].forEach((audioContext) => audioContext?.resume?.());
 }
 
 function updateCurrentPlayer() {
@@ -2284,6 +2525,7 @@ function drawCard() {
 }
 
 function continueAfterResults() {
+  if (!isHost) return;
   if (currentRound >= totalRounds) {
     showFinalWheel();
     return;
@@ -2450,7 +2692,7 @@ function renderPenalty() {
   }
 
   penaltyPlayers.forEach((player) => {
-    if (!penaltyScored) {
+    if (isHost && !penaltyScored) {
       penaltyCounts[player] = (penaltyCounts[player] || 0) + 1;
       addFinalStats(player, currentPenalty);
     }
@@ -2465,10 +2707,13 @@ function renderPenalty() {
     penaltyList.appendChild(item);
   });
 
-  penaltyScored = true;
+  if (isHost) {
+    penaltyScored = true;
+  }
 }
 
 function showPenalty() {
+  if (!isHost) return;
   if (getIsUnanimousVote()) {
     showUnanimousPenalty();
     return;
@@ -2503,8 +2748,9 @@ function setPenaltySlotDisplay(penalty) {
 }
 
 function showUnanimousPenalty() {
+  if (!isHost) return;
   currentPenalty = "1 SHOT PER TUTTI CACONI";
-  if (!penaltyScored) {
+  if (isHost && !penaltyScored) {
     players.forEach((player) => {
       penaltyCounts[player] = (penaltyCounts[player] || 0) + 1;
       addFinalStats(player, "1 shot");
@@ -2520,6 +2766,7 @@ function showUnanimousPenalty() {
 }
 
 function showGentlemanDayIntro() {
+  if (!isHost) return;
   gentlemanDayPlayed = true;
   selectedGentlemanDay = "";
   gentlemanDayQuestionIndex = 0;
@@ -2535,9 +2782,7 @@ function showGentlemanDayIntro() {
   gentlemanDayIntroTimeoutId = setTimeout(showGentlemanDayDraw, 8000);
 }
 
-function showGentlemanDayDraw() {
-  selectedGentlemanDay = gentlemanDayDrawOptions[Math.floor(Math.random() * gentlemanDayDrawOptions.length)];
-  selectedGentlemanDayQuestions = getGentlemanDayQuestionSet(selectedGentlemanDay);
+function renderGentlemanDayDrawScreen() {
   gentlemanDayRevealName.textContent = selectedGentlemanDay;
 
   const portraitSrc = gentlemanDayPortraits[selectedGentlemanDay];
@@ -2554,9 +2799,19 @@ function showGentlemanDayDraw() {
     gentlemanDayPortrait.removeAttribute("src");
     gentlemanDayPortrait.classList.remove("is-landscape", "is-portrait", "is-square");
   }
+}
+
+function showGentlemanDayDraw() {
+  if (!isHost) return;
+  selectedGentlemanDay = gentlemanDayDrawOptions[Math.floor(Math.random() * gentlemanDayDrawOptions.length)];
+  selectedGentlemanDayQuestions = getGentlemanDayQuestionSet(selectedGentlemanDay);
+  renderGentlemanDayDrawScreen();
 
   setScreen("gentlemanDayDraw");
-  setTimeout(showGentlemanDayQuestion, 5000);
+  clearTimeout(gentlemanDayDrawTimeoutId);
+  gentlemanDayDrawTimeoutId = setTimeout(() => {
+    if (isHost && currentScreenName === "gentlemanDayDraw") showGentlemanDayQuestion();
+  }, 5000);
 }
 
 function getCurrentGentlemanDayQuestion() {
@@ -2584,7 +2839,7 @@ function updateGentlemanDayPortraitFit() {
   gentlemanDayPortrait.classList.toggle("is-square", !isLandscape && !isPortrait);
 }
 
-function showGentlemanDayQuestion() {
+function renderGentlemanDayQuestionScreen() {
   const currentQuestion = getCurrentGentlemanDayQuestion();
   const currentPlayer = currentUserName || players[0] || "Giocatore";
   const playerAnswers = gentlemanDayAnswersByPlayer[currentPlayer] || {};
@@ -2611,6 +2866,10 @@ function showGentlemanDayQuestion() {
   continueGentlemanDayButton.disabled = !isHost;
   continueGentlemanDayButton.classList.add("hidden");
   gentlemanDayQuestionHostOnlyNote.classList.add("hidden");
+}
+
+function showGentlemanDayQuestion() {
+  renderGentlemanDayQuestionScreen();
   setScreen("gentlemanDayQuestion");
   startGentlemanDayAnswerTimer();
 }
@@ -2647,18 +2906,18 @@ function startGentlemanDayAnswerTimer() {
     if (elapsed >= answerDuration) {
       clearInterval(gentlemanDayAnswerTimerId);
       gentlemanDayAnswerTimerId = null;
+      if (!isHost) return;
       showGentlemanDayResult();
     }
   }, 100);
 }
 
-function showGentlemanDayResult() {
+function renderGentlemanDayResultScreen() {
   const currentQuestion = getCurrentGentlemanDayQuestion();
   const currentPlayer = currentUserName || players[0] || "Giocatore";
   const selectedAnswer = gentlemanDayAnswersByPlayer[currentPlayer]?.[gentlemanDayQuestionIndex] || "";
   const correctAnswer = currentQuestion.answer || currentQuestion.options?.[0] || "---";
   const isCorrect = selectedAnswer === correctAnswer;
-  const mistakeScoreKey = `${currentPlayer}-${selectedGentlemanDay}-${gentlemanDayQuestionIndex}`;
 
   gentlemanDayCorrectAnswer.textContent = correctAnswer;
   gentlemanDayUserAnswer.textContent = `La tua risposta: ${selectedAnswer || "Non hai risposto"}`;
@@ -2668,10 +2927,17 @@ function showGentlemanDayResult() {
     ? '<span class="gentlement-feedback-mark">✓</span>'
     : '<span class="gentlement-feedback-mark">×</span><small>Non conosci il tuo amico vergognati, fatti uno shot</small>';
 
-  if (!isCorrect && !scoredGentlemanDayMistakes[mistakeScoreKey]) {
-    scoredGentlemanDayMistakes[mistakeScoreKey] = true;
-    penaltyCounts[currentPlayer] = (penaltyCounts[currentPlayer] || 0) + 1;
-    addFinalStats(currentPlayer, "1 shot");
+  if (isHost) {
+    players.forEach((player) => {
+      const playerAnswer = gentlemanDayAnswersByPlayer[player]?.[gentlemanDayQuestionIndex] || "";
+      const playerIsCorrect = playerAnswer === correctAnswer;
+      const mistakeScoreKey = `${player}-${selectedGentlemanDay}-${gentlemanDayQuestionIndex}`;
+      if (!playerIsCorrect && !scoredGentlemanDayMistakes[mistakeScoreKey]) {
+        scoredGentlemanDayMistakes[mistakeScoreKey] = true;
+        penaltyCounts[player] = (penaltyCounts[player] || 0) + 1;
+        addFinalStats(player, "1 shot");
+      }
+    });
   }
 
   continueGentlemanDayResultButton.textContent =
@@ -2679,6 +2945,10 @@ function showGentlemanDayResult() {
   continueGentlemanDayResultButton.disabled = !isHost;
   continueGentlemanDayResultButton.classList.toggle("hidden", !isHost);
   gentlemanDayResultHostOnlyNote.classList.toggle("hidden", isHost);
+}
+
+function showGentlemanDayResult() {
+  renderGentlemanDayResultScreen();
   setScreen("gentlemanDayResult");
 }
 
@@ -2723,6 +2993,7 @@ function getGentlemanDayPitPlayers() {
 }
 
 function showGentlemanDayPitFlameVideo() {
+  if (!isHost) return;
   gentlemanDayPitPlayers = getGentlemanDayPitPlayers();
   gentlemanDayPitAnswersByPlayer = {};
   currentGentlemanDayPitQuestion = getRandomGentlemanDayPitQuestion();
@@ -2735,6 +3006,16 @@ function showGentlemanDayPitFlameVideo() {
   gentlemanDayPitFlameVideo.volume = 0.9;
   setScreen("gentlemanDayPitFlame");
   gentlemanDayPitFlameVideo.play().catch(() => {});
+  clearTimeout(gentlemanDayPitFlameFallbackId);
+  scheduleHostVideoFallback(
+    gentlemanDayPitFlameVideo,
+    "gentlemanDayPitFlame",
+    showGentlemanDayPitVideo,
+    6500,
+    (timeoutId) => {
+      gentlemanDayPitFlameFallbackId = timeoutId;
+    },
+  );
 }
 
 function getRandomGentlemanDayPitQuestion() {
@@ -2743,13 +3024,24 @@ function getRandomGentlemanDayPitQuestion() {
 }
 
 function showGentlemanDayPitVideo() {
+  if (!isHost) return;
   gentlemanDayPitVideo.currentTime = 0;
   gentlemanDayPitVideo.volume = 1;
   setScreen("gentlemanDayPitVideo");
   gentlemanDayPitVideo.play().catch(() => {});
+  clearTimeout(gentlemanDayPitVideoFallbackId);
+  scheduleHostVideoFallback(
+    gentlemanDayPitVideo,
+    "gentlemanDayPitVideo",
+    showGentlemanDayPitQuestion,
+    12000,
+    (timeoutId) => {
+      gentlemanDayPitVideoFallbackId = timeoutId;
+    },
+  );
 }
 
-function showGentlemanDayPitQuestion() {
+function renderGentlemanDayPitQuestionScreen() {
   const currentPlayer = currentUserName || players[0] || "Giocatore";
   const canAnswer = gentlemanDayPitPlayers.includes(currentPlayer);
   currentGentlemanDayPitQuestion = currentGentlemanDayPitQuestion || getRandomGentlemanDayPitQuestion();
@@ -2771,6 +3063,11 @@ function showGentlemanDayPitQuestion() {
   gentlemanDayPitLockedNote.classList.toggle("hidden", canAnswer);
   continueAfterGentlemanDayPitButton.disabled = !isHost;
   continueAfterGentlemanDayPitButton.classList.toggle("hidden", !isHost);
+}
+
+function showGentlemanDayPitQuestion() {
+  if (!isHost) return;
+  renderGentlemanDayPitQuestionScreen();
   setScreen("gentlemanDayPitQuestion");
 }
 
@@ -2785,12 +3082,12 @@ function answerGentlemanDayPitQuestion(answer) {
 
   publishSharedState({ gentlemanDayPitAnswersByPlayer });
 
-  if (gentlemanDayPitPlayers.every((player) => gentlemanDayPitAnswersByPlayer[player])) {
+  if (isHost && gentlemanDayPitPlayers.every((player) => gentlemanDayPitAnswersByPlayer[player])) {
     setTimeout(showGentlemanDayPitResult, 650);
   }
 }
 
-function showGentlemanDayPitResult() {
+function renderGentlemanDayPitResultScreen() {
   gentlemanDayPitResultList.innerHTML = "";
   const correctAnswer = currentGentlemanDayPitQuestion?.answer || "";
 
@@ -2810,6 +3107,11 @@ function showGentlemanDayPitResult() {
   gentlemanDayPitResultLockedNote.classList.toggle("hidden", isHost);
   continueAfterGentlemanDayPitResultButton.disabled = !isHost;
   continueAfterGentlemanDayPitResultButton.classList.toggle("hidden", !isHost);
+}
+
+function showGentlemanDayPitResult() {
+  if (!isHost) return;
+  renderGentlemanDayPitResultScreen();
   setScreen("gentlemanDayPitResult");
 }
 
@@ -2842,7 +3144,6 @@ function renderBonusPlayers() {
 
 function renderBonusQuestion() {
   currentBonusQuestion = getRandomUnusedItem(bonusQuestions, usedBonusQuestionIndexes) || bonusQuestions[0];
-  const shuffledBonusOptions = [...currentBonusQuestion.options].sort(() => Math.random() - 0.5);
   bonusQuestionRevealed = false;
   bonusWinner = "";
   bonusPenaltyScored = false;
@@ -2853,23 +3154,29 @@ function renderBonusQuestion() {
   clearTimeout(bonusResultTimeoutId);
   clearInterval(bonusResultCountdownIntervalId);
   filmCountdown.classList.add("hidden");
-  bonusQuestionText.textContent = currentBonusQuestion.question;
+  renderBonusScreen();
+}
+
+function renderBonusScreen() {
+  const question = currentBonusQuestion || bonusQuestions[0];
+  const currentPlayer = currentUserName || players[0] || "Giocatore";
+  const canAnswerBonus = currentBonusPlayers.includes(currentPlayer);
+  bonusQuestionText.textContent = question.question;
   bonusOptions.innerHTML = "";
-  bonusQuestionWrap.classList.add("is-blurred");
+  bonusQuestionWrap.classList.toggle("is-blurred", !bonusQuestionRevealed);
   bonusQuestionWrap.classList.remove("is-counting");
   bonusCountdown.classList.add("hidden");
-  revealBonusQuestionButton.classList.toggle("hidden", !isHost);
+  revealBonusQuestionButton.classList.toggle("hidden", !isHost || bonusQuestionRevealed);
   continueAfterBonusButton.classList.add("hidden");
   bonusHostOnlyNote.classList.toggle("hidden", isHost);
-  const canAnswerBonus = currentBonusPlayers.includes(currentUserName);
   bonusLockedText.classList.add("hidden");
 
-  shuffledBonusOptions.forEach((option) => {
+  question.options.forEach((option) => {
     const button = document.createElement("button");
     button.className = "bonus-option";
     button.type = "button";
     button.textContent = option;
-    button.disabled = true;
+    button.disabled = !bonusQuestionRevealed || !canAnswerBonus || Boolean(bonusWinner);
     button.dataset.canAnswer = String(canAnswerBonus);
     button.addEventListener("click", () => answerBonusQuestion(button, option));
     bonusOptions.appendChild(button);
@@ -2877,6 +3184,7 @@ function renderBonusQuestion() {
 }
 
 function revealBonusQuestion() {
+  if (!isHost) return;
   clearTimeout(bonusRevealTimeoutId);
   clearInterval(bonusCountdownIntervalId);
 
@@ -2901,6 +3209,7 @@ function revealBonusQuestion() {
 }
 
 function showBonusQuestionNow() {
+  if (!isHost) return;
   bonusQuestionRevealed = true;
   bonusQuestionRevealedAt = Date.now();
   bonusQuestionWrap.classList.remove("is-blurred");
@@ -2910,6 +3219,7 @@ function showBonusQuestionNow() {
   bonusOptions.querySelectorAll(".bonus-option").forEach((button) => {
     button.disabled = button.dataset.canAnswer !== "true";
   });
+  publishSharedState();
 }
 
 function answerBonusQuestion(selectedButton, selectedAnswer) {
@@ -2939,7 +3249,7 @@ function answerBonusQuestion(selectedButton, selectedAnswer) {
     button.disabled = true;
   });
 
-  if (getAllBonusPlayersAnsweredCorrectly()) {
+  if (isHost && getAllBonusPlayersAnsweredCorrectly()) {
     scheduleBonusResult();
   }
 }
@@ -2972,6 +3282,7 @@ function getAllBonusPlayersAnsweredCorrectly() {
 }
 
 function scheduleBonusResult() {
+  if (!isHost) return;
   clearTimeout(bonusResultTimeoutId);
   clearInterval(bonusResultCountdownIntervalId);
   bonusWinner = getFastestBonusPlayer();
@@ -3026,7 +3337,7 @@ function renderBonusResult() {
   }
 
   drinkers.forEach((player) => {
-    if (!bonusPenaltyScored) {
+    if (isHost && !bonusPenaltyScored) {
       penaltyCounts[player] = (penaltyCounts[player] || 0) + 1;
       addFinalStats(player, "3 shot");
     }
@@ -3043,7 +3354,9 @@ function renderBonusResult() {
     bonusDrinkersList.appendChild(item);
   });
 
-  bonusPenaltyScored = true;
+  if (isHost) {
+    bonusPenaltyScored = true;
+  }
 }
 
 function restartBonusFireworks() {
@@ -3060,6 +3373,7 @@ function formatReactionTime(player) {
 }
 
 function showBonusRound() {
+  if (!isHost) return;
   bonusPlayed = true;
   clearInterval(timerIntervalId);
   renderBonusPlayers();
@@ -3068,6 +3382,7 @@ function showBonusRound() {
 }
 
 function showBonusIntro() {
+  if (!isHost) return;
   clearInterval(timerIntervalId);
   bonusIntroVideo.currentTime = 0;
   bonusIntroVideoBg.currentTime = 0;
@@ -3075,9 +3390,20 @@ function showBonusIntro() {
   setScreen("bonusIntro");
   bonusIntroVideoBg.play().catch(() => {});
   bonusIntroVideo.play().catch(() => {});
+  clearTimeout(bonusIntroFallbackId);
+  scheduleHostVideoFallback(
+    bonusIntroVideo,
+    "bonusIntro",
+    showBonusRound,
+    11000,
+    (timeoutId) => {
+      bonusIntroFallbackId = timeoutId;
+    },
+  );
 }
 
 function continueAfterBonus() {
+  if (!isHost) return;
   currentRound += 1;
   updateCurrentPlayer();
   drawCard();
@@ -3094,11 +3420,22 @@ function showGentlementGame() {
 }
 
 function showGentlementIntro() {
+  if (!isHost) return;
   clearInterval(gentlementPhotoTimerId);
   gentlementPhotoTimerId = null;
   setScreen("gentlementIntro");
   gentlementIntroVideo.currentTime = 0;
   gentlementIntroVideo.play().catch(() => {});
+  clearTimeout(gentlementIntroFallbackId);
+  scheduleHostVideoFallback(
+    gentlementIntroVideo,
+    "gentlementIntro",
+    showNextGentlementPhoto,
+    10000,
+    (timeoutId) => {
+      gentlementIntroFallbackId = timeoutId;
+    },
+  );
 }
 
 function getRandomGentlementPhoto() {
@@ -3133,6 +3470,7 @@ function getRandomZoomPosition() {
 }
 
 function showNextGentlementPhoto() {
+  if (!isHost) return;
   gentlementGameRound += 1;
   currentGentlementPhoto = getRandomGentlementPhoto();
   currentGentlementAnswer = "";
@@ -3276,14 +3614,15 @@ function startGentlementPhotoTimer() {
       gentlementPhotoTimerId = null;
       gentlementPhotoTimer.classList.remove("is-ending");
       stopGentlementQuizMusic();
+      if (!isHost) return;
       showGentlementAnswers();
     }
   }, 1000);
 }
 
-function showGentlementAnswers() {
+function renderGentlementAnswersScreen() {
   gentlementAnswerGrid.innerHTML = "";
-  currentGentlementAnswer = "";
+  const selectedAnswer = gentlementAnswersByPlayer[currentUserName || players[0] || "Giocatore"] || "";
   gentlementAnswerTimerBar.style.width = "100%";
   gentlementAnswerTimerBar.offsetHeight;
 
@@ -3292,10 +3631,16 @@ function showGentlementAnswers() {
     button.className = "gentlement-answer-button";
     button.type = "button";
     button.textContent = answer;
+    button.classList.toggle("is-selected", answer === selectedAnswer);
     button.addEventListener("click", () => answerGentlementQuestion(answer));
     gentlementAnswerGrid.appendChild(button);
   });
+}
 
+function showGentlementAnswers() {
+  if (!isHost) return;
+  currentGentlementAnswer = "";
+  renderGentlementAnswersScreen();
   setScreen("gentlementAnswers");
   startGentlementAnswerTimer();
 }
@@ -3323,6 +3668,7 @@ function startGentlementAnswerTimer() {
     if (elapsed >= answerDuration) {
       clearInterval(gentlementAnswerTimerId);
       gentlementAnswerTimerId = null;
+      if (!isHost) return;
       renderGentlementResult();
       setScreen("gentlementResult");
     }
@@ -3331,10 +3677,9 @@ function startGentlementAnswerTimer() {
 
 function renderGentlementResult() {
   const correctAnswer = currentGentlementPhoto?.answer || "Da impostare";
-  const scoringPlayer = currentUserName || players[0] || "Giocatore";
-  const playerAnswer = gentlementAnswersByPlayer[scoringPlayer] || currentGentlementAnswer;
+  const currentPlayer = currentUserName || players[0] || "Giocatore";
+  const playerAnswer = gentlementAnswersByPlayer[currentPlayer] || "";
   const isCorrect = playerAnswer === correctAnswer;
-  const mistakeScoreKey = `${gentlementGameRound}-${scoringPlayer}`;
 
   gentlementResultTitle.textContent = "Il gentlement era ...";
   gentlementCorrectAnswer.textContent = correctAnswer;
@@ -3344,10 +3689,17 @@ function renderGentlementResult() {
     ? '<span class="gentlement-feedback-mark">✓</span>'
     : '<span class="gentlement-feedback-mark">×</span><small>Ti sei meritato uno shottino</small>';
 
-  if (!isCorrect && !scoredGentlementMistakes[mistakeScoreKey]) {
-    scoredGentlementMistakes[mistakeScoreKey] = true;
-    penaltyCounts[scoringPlayer] = (penaltyCounts[scoringPlayer] || 0) + 1;
-    addFinalStats(scoringPlayer, "1 shot");
+  if (isHost) {
+    players.forEach((player) => {
+      const playerAnswerForScore = gentlementAnswersByPlayer[player] || "";
+      const playerIsCorrect = playerAnswerForScore === correctAnswer;
+      const mistakeScoreKey = `${gentlementGameRound}-${player}`;
+      if (!playerIsCorrect && !scoredGentlementMistakes[mistakeScoreKey]) {
+        scoredGentlementMistakes[mistakeScoreKey] = true;
+        penaltyCounts[player] = (penaltyCounts[player] || 0) + 1;
+        addFinalStats(player, "1 shot");
+      }
+    });
   }
 
   gentlementNextButton.textContent = gentlementGameRound >= gentlementGameTotalRounds
@@ -3373,8 +3725,10 @@ function continueGentlementGame() {
 }
 
 function showFinalWheel() {
+  if (!isHost) return;
   gentlementExtracted = false;
   currentGentlement = "";
+  currentWheelPenalty = "";
   extractedGentlements = [];
   wheelRotation = 0;
   wheelStage.classList.remove("is-spinning");
@@ -3394,6 +3748,46 @@ function showFinalWheel() {
   finishAfterWheelButton.classList.add("hidden");
   finishAfterWheelNote.classList.add("hidden");
   setScreen("wheel");
+}
+
+function renderFinalWheelScreen() {
+  finalWheel.style.transform = `rotate(${wheelRotation}deg)`;
+  wheelStage.classList.toggle("is-spinning", false);
+  gentlementSlot.classList.add("hidden");
+  gentlementSlot.classList.remove("is-leaving");
+  gentlementSlotText.parentElement.classList.remove("is-spinning");
+
+  if (currentGentlement) {
+    gentlementNameBadge.textContent = currentGentlement;
+    gentlementNameBadge.classList.remove("hidden");
+    gentlementNameBadge.classList.add("is-visible");
+  } else {
+    gentlementNameBadge.classList.add("hidden");
+    gentlementNameBadge.classList.remove("is-visible");
+  }
+
+  if (currentWheelPenalty) {
+    wheelResultText.textContent = currentWheelPenalty;
+    wheelResult.classList.remove("hidden");
+  } else {
+    wheelResultText.textContent = "---";
+    wheelResult.classList.add("hidden");
+  }
+
+  if (currentChallengePlayer) {
+    showSecretChallengePicker(currentChallengePlayer);
+  } else {
+    resetSecretChallenge();
+  }
+
+  const allExtracted = extractedGentlements.length >= players.length && players.length > 0;
+  wheelCenterSpinButton.disabled = !gentlementExtracted || currentUserName !== currentGentlement;
+  drawGentlementButton.classList.toggle("hidden", !isHost || gentlementExtracted || allExtracted);
+  drawGentlementButton.disabled = !isHost || gentlementExtracted || allExtracted;
+  drawGentlementButton.textContent = "Estrai il gentlement";
+  finishAfterWheelButton.classList.toggle("hidden", !isHost || !allExtracted);
+  finishAfterWheelButton.disabled = !isHost || !allExtracted;
+  finishAfterWheelNote.classList.toggle("hidden", isHost || !allExtracted);
 }
 
 function resetSecretChallenge() {
@@ -3489,6 +3883,7 @@ function spinFinalWheel() {
 
   wheelCenterSpinButton.disabled = true;
   gentlementExtracted = false;
+  currentWheelPenalty = "";
   wheelResult.classList.add("hidden");
   resetSecretChallenge();
   wheelStage.classList.add("is-spinning");
@@ -3506,6 +3901,7 @@ function spinFinalWheel() {
   setTimeout(() => {
     wheelStage.classList.remove("is-spinning");
     const selectedPenalty = finalWheelPenalties[selectedIndex];
+    currentWheelPenalty = selectedPenalty;
     wheelResultText.textContent = selectedPenalty;
     wheelResult.classList.remove("hidden");
     if (selectedPenalty === "SFIDA") {
@@ -3517,6 +3913,17 @@ function spinFinalWheel() {
       extractedGentlements.push(currentGentlement);
     }
     prepareNextGentlementStep();
+    publishSharedState({
+      wheelRotation,
+      gentlementExtracted,
+      currentGentlement,
+      currentWheelPenalty,
+      extractedGentlements,
+      currentChallengePlayer,
+      penaltyCounts,
+      shotCounts,
+      drinkCounts,
+    });
   }, 5600);
 }
 
@@ -3541,6 +3948,7 @@ function drawGentlement() {
   gentlementNameBadge.classList.remove("is-visible");
   wheelResult.classList.add("hidden");
   wheelResultText.textContent = "---";
+  currentWheelPenalty = "";
   resetSecretChallenge();
   drawGentlementButton.disabled = true;
   drawGentlementButton.classList.add("hidden");
@@ -3574,6 +3982,7 @@ function revealGentlementFinale(selectedPlayer) {
     gentlementNameBadge.classList.add("is-visible");
     gentlementExtracted = true;
     wheelCenterSpinButton.disabled = currentUserName !== currentGentlement;
+    publishSharedState();
   }, 900);
 }
 
@@ -3781,6 +4190,13 @@ startGameButton.addEventListener("click", () => {
   usedGentlementPhotoIndexes = [];
   gentlementAnswersByPlayer = {};
   scoredGentlementMistakes = {};
+  bonusAnswerLockedUntil = {};
+  bonusQuestionRevealedAt = 0;
+  currentWheelPenalty = "";
+  gentlementExtracted = false;
+  currentGentlement = "";
+  extractedGentlements = [];
+  currentChallengePlayer = "";
   resetGameStats();
   resetUsedQuestionPools();
   updateCurrentPlayer();
@@ -3803,7 +4219,9 @@ backToLobbyButton.addEventListener("click", () => {
   showPodiumSuspense();
 });
 
-podiumSuspenseVideo.addEventListener("ended", showFinalPodium);
+podiumSuspenseVideo.addEventListener("ended", () => {
+  if (isHost) showFinalPodium();
+});
 
 showPenaltyButton.addEventListener("click", showPenalty);
 
@@ -3815,8 +4233,12 @@ continueGentlemanDayButton.addEventListener("click", continueGentlemanDay);
 
 continueGentlemanDayResultButton.addEventListener("click", continueAfterGentlemanDayResult);
 
-gentlemanDayPitFlameVideo.addEventListener("ended", showGentlemanDayPitVideo);
-gentlemanDayPitVideo.addEventListener("ended", showGentlemanDayPitQuestion);
+gentlemanDayPitFlameVideo.addEventListener("ended", () => {
+  if (isHost) showGentlemanDayPitVideo();
+});
+gentlemanDayPitVideo.addEventListener("ended", () => {
+  if (isHost) showGentlemanDayPitQuestion();
+});
 
 continueAfterGentlemanDayPitButton.addEventListener("click", () => {
   if (!isHost) return;
@@ -3832,9 +4254,13 @@ revealBonusQuestionButton.addEventListener("click", revealBonusQuestion);
 
 continueAfterBonusButton.addEventListener("click", continueAfterBonus);
 
-bonusIntroVideo.addEventListener("ended", showBonusRound);
+bonusIntroVideo.addEventListener("ended", () => {
+  if (isHost) showBonusRound();
+});
 
-gentlementIntroVideo.addEventListener("ended", showNextGentlementPhoto);
+gentlementIntroVideo.addEventListener("ended", () => {
+  if (isHost) showNextGentlementPhoto();
+});
 
 gentlementNextButton.addEventListener("click", continueGentlementGame);
 
@@ -3859,3 +4285,11 @@ reviewStars.querySelectorAll("button").forEach((button) => {
 });
 
 reviewSaveButton.addEventListener("click", saveReview);
+
+["pointerdown", "touchstart", "click"].forEach((eventName) => {
+  window.addEventListener(eventName, unlockGameAudio, {
+    once: true,
+    passive: true,
+    capture: true,
+  });
+});
