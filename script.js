@@ -1008,6 +1008,7 @@ let currentScreenName = "intro";
 let currentCard = { type: "Sfida", text: "" };
 let roundEndsAt = 0;
 let multiplayerPollId = null;
+let multiplayerEvents = null;
 let multiplayerRoomVersion = 0;
 let isApplyingRemoteState = false;
 let audioUnlocked = false;
@@ -1620,6 +1621,31 @@ function startRoomPolling() {
       console.warn(error.message);
     }
   }, 700);
+}
+
+function startRoomLiveSync() {
+  if (!isOnlineMultiplayer() || !currentRoomCode || typeof EventSource === "undefined") {
+    startRoomPolling();
+    return;
+  }
+
+  if (multiplayerEvents) {
+    multiplayerEvents.close();
+    multiplayerEvents = null;
+  }
+
+  multiplayerEvents = new EventSource(`/api/rooms/${currentRoomCode}/events`);
+  multiplayerEvents.addEventListener("room", (event) => {
+    try {
+      const payload = JSON.parse(event.data);
+      applyRoomPayload(payload.room);
+    } catch (error) {
+      console.warn(error.message);
+    }
+  });
+  multiplayerEvents.addEventListener("error", () => {
+    startRoomPolling();
+  });
 }
 
 function startSyncedTimer() {
@@ -4118,7 +4144,7 @@ async function enterLobby() {
         publishSharedState(getSharedState({ screen: "lobby" }));
       }
 
-      startRoomPolling();
+      startRoomLiveSync();
       return;
     } catch (error) {
       alert(error.message);

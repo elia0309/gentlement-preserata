@@ -6,6 +6,7 @@ const crypto = require("crypto");
 const rootDir = __dirname;
 const port = Number(process.env.PORT || 3000);
 const rooms = new Map();
+const roomClients = new Map();
 
 const mimeTypes = {
   ".html": "text/html; charset=utf-8",
@@ -87,6 +88,20 @@ function publicRoom(room) {
   };
 }
 
+function writeRoomEvent(response, room) {
+  response.write(`event: room\n`);
+  response.write(`data: ${JSON.stringify({ room: publicRoom(room) })}\n\n`);
+}
+
+function broadcastRoom(room) {
+  const clients = roomClients.get(room.code);
+  if (!clients) return;
+
+  for (const client of clients) {
+    writeRoomEvent(client, room);
+  }
+}
+
 function ensureRoom(code) {
   const room = rooms.get(String(code || "").toUpperCase());
   return room || null;
@@ -117,6 +132,7 @@ async function handleApi(request, response, url) {
     };
 
     rooms.set(code, room);
+    broadcastRoom(room);
     sendJson(response, 201, { room: publicRoom(room), playerId: host.id });
     return;
   }
@@ -147,6 +163,7 @@ async function handleApi(request, response, url) {
         players: room.players.map((roomPlayer) => roomPlayer.name),
         updatedAt: Date.now(),
       };
+      broadcastRoom(room);
     }
 
     sendJson(response, 200, { room: publicRoom(room), playerId: player.id });
@@ -162,6 +179,41 @@ async function handleApi(request, response, url) {
     }
 
     sendJson(response, 200, { room: publicRoom(room) });
+    return;
+  }
+
+  const eventsMatch = url.pathname.match(/^\/api\/rooms\/([A-Z0-9]+)\/events$/i);
+  if (request.method === "GET" && eventsMatch) {
+    const room = ensureRoom(eventsMatch[1]);
+    if (!room) {
+      sendJson(response, 404, { error: "Stanza non trovata." });
+      return;
+    }
+
+    response.writeHead(200, {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-store",
+      "Connection": "keep-alive",
+      "X-Accel-Buffering": "no",
+    });
+    response.write(": connected\n\n");
+    writeRoomEvent(response, room);
+
+    const clients = roomClients.get(room.code) || new Set();
+    clients.add(response);
+    roomClients.set(room.code, clients);
+
+    const keepAliveId = setInterval(() => {
+      response.write(": ping\n\n");
+    }, 25000);
+
+    request.on("close", () => {
+      clearInterval(keepAliveId);
+      clients.delete(response);
+      if (clients.size === 0) {
+        roomClients.delete(room.code);
+      }
+    });
     return;
   }
 
@@ -232,6 +284,7 @@ async function handleApi(request, response, url) {
       updatedAt: Date.now(),
     };
     room.version += 1;
+    broadcastRoom(room);
     sendJson(response, 200, { room: publicRoom(room) });
     return;
   }
@@ -257,9 +310,13 @@ function serveStatic(request, response, url) {
     }
 
     const extension = path.extname(filePath).toLowerCase();
+    const cacheControl = [".html", ".js", ".css", ".json", ".webmanifest"].includes(extension)
+      ? "no-store"
+      : "public, max-age=3600";
+
     response.writeHead(200, {
       "Content-Type": mimeTypes[extension] || "application/octet-stream",
-      "Cache-Control": extension === ".html" ? "no-store" : "public, max-age=3600",
+      "Cache-Control": cacheControl,
     });
     response.end(data);
   });
