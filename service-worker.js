@@ -1,4 +1,4 @@
-const CACHE_NAME = "gentlement-preserata-v5";
+const CACHE_NAME = "gentlement-preserata-v6";
 const CORE_ASSETS = [
   "/",
   "/index.html",

@@ -24,6 +24,16 @@ const mimeTypes = {
   ".svg": "image/svg+xml",
 };
 
+const rangeEnabledExtensions = new Set([
+  ".mp3",
+  ".wav",
+  ".m4a",
+  ".mp4",
+  ".webm",
+  ".ogg",
+  ".mov",
+]);
+
 function createRoomCode() {
   const letters = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let code = "";
@@ -302,8 +312,8 @@ function serveStatic(request, response, url) {
     return;
   }
 
-  fs.readFile(filePath, (error, data) => {
-    if (error) {
+  fs.stat(filePath, (error, stats) => {
+    if (error || !stats.isFile()) {
       response.writeHead(404);
       response.end("Not found");
       return;
@@ -313,12 +323,63 @@ function serveStatic(request, response, url) {
     const cacheControl = [".html", ".js", ".css", ".json", ".webmanifest"].includes(extension)
       ? "no-store"
       : "public, max-age=3600";
-
-    response.writeHead(200, {
+    const headers = {
       "Content-Type": mimeTypes[extension] || "application/octet-stream",
       "Cache-Control": cacheControl,
-    });
-    response.end(data);
+      "Content-Length": stats.size,
+    };
+
+    if (rangeEnabledExtensions.has(extension)) {
+      headers["Accept-Ranges"] = "bytes";
+    }
+
+    const rangeHeader = request.headers.range;
+    if (rangeHeader && rangeEnabledExtensions.has(extension)) {
+      const rangeMatch = rangeHeader.match(/^bytes=(\d*)-(\d*)$/);
+      if (!rangeMatch) {
+        response.writeHead(416, {
+          ...headers,
+          "Content-Range": `bytes */${stats.size}`,
+        });
+        response.end();
+        return;
+      }
+
+      let start = rangeMatch[1] ? Number(rangeMatch[1]) : 0;
+      let end = rangeMatch[2] ? Number(rangeMatch[2]) : stats.size - 1;
+
+      if (!rangeMatch[1] && rangeMatch[2]) {
+        const suffixLength = Number(rangeMatch[2]);
+        start = Math.max(stats.size - suffixLength, 0);
+        end = stats.size - 1;
+      }
+
+      if (
+        Number.isNaN(start)
+        || Number.isNaN(end)
+        || start < 0
+        || end >= stats.size
+        || start > end
+      ) {
+        response.writeHead(416, {
+          ...headers,
+          "Content-Range": `bytes */${stats.size}`,
+        });
+        response.end();
+        return;
+      }
+
+      response.writeHead(206, {
+        ...headers,
+        "Content-Range": `bytes ${start}-${end}/${stats.size}`,
+        "Content-Length": end - start + 1,
+      });
+      fs.createReadStream(filePath, { start, end }).pipe(response);
+      return;
+    }
+
+    response.writeHead(200, headers);
+    fs.createReadStream(filePath).pipe(response);
   });
 }
 

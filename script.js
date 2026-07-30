@@ -1573,7 +1573,7 @@ function applyRoomPayload(room, playerId = currentPlayerId) {
   renderSharedScreen(screenChanged);
   lastSharedScreenName = nextScreen;
 
-  if (isHost && currentScreenName === "game" && getAnsweredPlayers().length === players.length && players.length > 0) {
+  if (isHost && currentScreenName === "game" && haveAllPlayersAnswered()) {
     finishRound();
   }
 
@@ -2701,6 +2701,10 @@ function getAnsweredPlayers() {
   return players.filter((player) => votesByPlayer[player]);
 }
 
+function haveAllPlayersAnswered() {
+  return players.length > 0 && players.every((player) => Boolean(votesByPlayer[player]));
+}
+
 function getIsUnanimousVote() {
   const answeredPlayers = getAnsweredPlayers();
   const uniqueAnswers = new Set(answeredPlayers.map((player) => votesByPlayer[player]));
@@ -3075,10 +3079,11 @@ function showGentlemanDayPitFlameVideo() {
   setScreen("gentlemanDayPitFlame");
   safelyPlayMedia(gentlemanDayPitFlameVideo);
   clearTimeout(gentlemanDayPitFlameFallbackId);
-  scheduleFixedHostAdvance(
+  scheduleHostVideoFallback(
+    gentlemanDayPitFlameVideo,
     "gentlemanDayPitFlame",
     showGentlemanDayPitVideo,
-    6500,
+    11000,
     (timeoutId) => {
       gentlemanDayPitFlameFallbackId = timeoutId;
     },
@@ -3097,10 +3102,11 @@ function showGentlemanDayPitVideo() {
   setScreen("gentlemanDayPitVideo");
   safelyPlayMedia(gentlemanDayPitVideo);
   clearTimeout(gentlemanDayPitVideoFallbackId);
-  scheduleFixedHostAdvance(
+  scheduleHostVideoFallback(
+    gentlemanDayPitVideo,
     "gentlemanDayPitVideo",
     showGentlemanDayPitQuestion,
-    12000,
+    18000,
     (timeoutId) => {
       gentlemanDayPitVideoFallbackId = timeoutId;
     },
@@ -4087,7 +4093,7 @@ function recordAnswer(player) {
   renderAnswerOptions();
   publishSharedState({ votesByPlayer, responseCounts });
 
-  if (getAnsweredPlayers().length === players.length) {
+  if (isHost && haveAllPlayersAnswered()) {
     finishRound();
   }
 }
