@@ -1,0 +1,17 @@
+{
+  "name": "Gentlement Preserata",
+  "short_name": "Gentlement",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f5fbff",
+  "theme_color": "#d8ecff",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "assets/backgrounds/cravatta-game.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

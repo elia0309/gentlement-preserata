@@ -1,0 +1,605 @@
+<!doctype html>
+<html lang="it">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Preserata Game</title>
+    <link rel="manifest" href="manifest.webmanifest" />
+    <meta name="theme-color" content="#d8ecff" />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div class="loading-screen" id="loadingScreen">
+      <div class="loading-content">
+        <div class="loading-logo">
+          <span class="tie-knot"></span>
+          <span class="tie-body"></span>
+        </div>
+        <p class="loading-kicker">Siete pronti a scatenarvi pollastrelle</p>
+        <h1 class="loading-title">Gentlement ubriacamoci</h1>
+      </div>
+      <div class="loading-bar" aria-label="Caricamento applicazione">
+        <span></span>
+      </div>
+    </div>
+
+    <div class="film-countdown hidden" id="filmCountdown" aria-label="Countdown verdetto">
+      <span id="filmCountdownText">3</span>
+    </div>
+
+    <main class="app">
+      <section class="screen screen-intro" id="introScreen">
+        <p class="eyebrow">Gentlement room</p>
+        <h1 class="intro-title">Muovete il culo</h1>
+        <p class="intro-text">
+          Scrivi il tuo nome, crea una stanza o entra con il codice dei tuoi amici.
+        </p>
+
+        <form class="room-form" id="roomForm">
+          <label for="playerName">Il tuo nome</label>
+          <input
+            id="playerName"
+            name="playerName"
+            type="text"
+            placeholder="Es. Marco"
+            autocomplete="off"
+          />
+
+          <div class="setup-block">
+            <p class="setup-label">Modalita della stanza</p>
+            <div class="mode-selector" aria-label="Intensita del gioco">
+              <button class="mode-button active" type="button" data-mode="omini">Solo maschi</button>
+              <button class="mode-button" type="button" data-mode="completa">Completa</button>
+            </div>
+            <p class="mode-description" id="modeDescription">
+              Solo le domande basi.
+            </p>
+          </div>
+
+          <div class="room-choice" aria-label="Scelta stanza">
+            <button class="room-choice-button" type="button" data-room-action="create">
+              Crea stanza
+            </button>
+          </div>
+
+          <div class="join-code-field" id="joinCodeField">
+            <label for="roomCodeInput">Codice stanza</label>
+            <input
+              id="roomCodeInput"
+              name="roomCodeInput"
+              type="text"
+              placeholder="Es. A7KQ"
+              maxlength="4"
+              autocomplete="off"
+            />
+            <button class="primary-button" type="submit">Entra nella stanza</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="screen screen-lobby hidden" id="lobbyScreen">
+        <button class="ghost-button" id="backToRoom" type="button">
+          Indietro
+        </button>
+        <p class="eyebrow lobby-eyebrow">Stanza privata</p>
+        <div class="room-code-card">
+          <p class="room-code-label">Il codice della stanza</p>
+          <h1 id="roomCodeText">----</h1>
+          <p class="room-code-help">Fate entrare i pollastrelli con questo codice.</p>
+        </div>
+
+        <div class="lobby-block">
+          <div class="lobby-block-header">
+            <h2>Giocatori dentro</h2>
+            <span id="playersCount">0</span>
+          </div>
+          <ul class="players" id="playersList" aria-label="Lista giocatori"></ul>
+        </div>
+
+        <div class="lobby-block">
+          <p class="selected-mode">
+            Modalita scelta: <span id="selectedModeText">Solo maschi</span>
+          </p>
+        </div>
+
+        <button class="primary-button" id="startGame" type="button">
+          Inizia l'ubriacatura
+        </button>
+        <p class="lobby-wait-note hidden" id="lobbyWaitNote">
+          Aspettando che l'host inizi la partita
+        </p>
+      </section>
+      <audio
+        id="lobbyMusic"
+        src="assets/lobby/musichetta-attesa.wav"
+        preload="auto"
+        loop
+      ></audio>
+
+      <section class="screen screen-game hidden" id="gameScreen">
+        <header class="game-header">
+          <button class="ghost-button" id="backToIntro" type="button">
+            Indietro
+          </button>
+          <p class="turn-label">Domanda per tutti</p>
+          <div class="game-status">
+            <h2 id="currentPlayer">Round 1</h2>
+            <div class="timer" aria-label="Tempo per rispondere">
+              <span id="timerText">01:30</span>
+            </div>
+          </div>
+        </header>
+
+        <article class="card" id="gameCard">
+          <p class="card-type" id="cardType">Sfida</p>
+          <p class="card-text" id="cardText">
+            Premi pesca per iniziare il turno.
+          </p>
+        </article>
+
+        <div class="answers-block">
+          <p class="answers-label">Risposte</p>
+          <div class="answers-grid" id="answersGrid"></div>
+        </div>
+      </section>
+      <audio
+        id="gameQuestionMusic"
+        src="assets/game-audio/sottofondo-domande.wav"
+        preload="auto"
+        loop
+      ></audio>
+
+      <section class="screen screen-results hidden" id="resultsScreen">
+        <p class="eyebrow">Risultati del giro</p>
+        <h1 class="results-title results-title-compact">Gli sfigati hanno votato</h1>
+        <p class="intro-text">
+          Ecco come si sono distribuite le risposte.
+        </p>
+
+        <div class="pie-chart" id="pieChart" aria-label="Diagramma risposte"></div>
+        <div class="results-legend" id="resultsLegend"></div>
+        <p class="host-only-note hidden" id="hostOnlyNote">
+          Aspetta quel fico dell'host
+        </p>
+
+        <button class="primary-button" id="showPenalty" type="button">
+          Vediamo chi beve
+        </button>
+      </section>
+
+      <section class="screen screen-penalty hidden" id="penaltyScreen">
+        <p class="eyebrow">Penitenza</p>
+        <h1 class="results-title">Siete il problema</h1>
+
+        <div class="penalty-list" id="penaltyList"></div>
+
+        <div class="slot-machine" aria-label="Penitenza estratta">
+          <p class="slot-label">Penitenza del giro</p>
+          <div class="slot-window">
+            <span id="penaltySlotText">Pronti?</span>
+          </div>
+        </div>
+
+        <p class="host-only-note hidden" id="penaltyHostOnlyNote">
+          Aspetta quel fico dell'host
+        </p>
+
+        <button class="primary-button" id="continueGame" type="button">
+          Prossima domanda
+        </button>
+      </section>
+
+      <section class="screen screen-penalty screen-unanimous hidden" id="unanimousPenaltyScreen">
+        <p class="eyebrow">Verdetto unanime</p>
+        <h1 class="results-title">Bravi coglioni</h1>
+        <p class="unanimous-text">
+          Avete votato tutti la stessa risposta.
+        </p>
+
+        <div class="unanimous-answer" id="unanimousAnswerText">---</div>
+
+        <div class="slot-machine" aria-label="Penitenza estratta">
+          <p class="slot-label">Penitenza del giro</p>
+          <div class="slot-window">
+            <span id="unanimousSlotText">Pronti?</span>
+          </div>
+        </div>
+
+        <p class="host-only-note hidden" id="unanimousHostOnlyNote">
+          Aspetta quel fico dell'host
+        </p>
+
+        <button class="primary-button" id="continueGameUnanimous" type="button">
+          Prossima domanda
+        </button>
+      </section>
+
+      <section class="screen screen-gentleman-day-intro hidden" id="gentlemanDayIntroScreen">
+        <img
+          class="gentleman-day-intro-image"
+          id="gentlemanDayIntroImage"
+          src="assets/gentleman-day-intro/il-gentelment-di-oggi.png"
+          alt="Il gentelment di oggi"
+        />
+        <audio
+          id="gentlemanDayIntroAudio"
+          src="assets/gentleman-day-intro/intro-music.wav"
+          preload="auto"
+        ></audio>
+      </section>
+
+      <section class="screen screen-gentleman-day hidden" id="gentlemanDayDrawScreen">
+        <p class="gentleman-day-reveal-kicker">Il gentelment estratto è</p>
+        <h1 class="gentleman-day-reveal-name" id="gentlemanDayRevealName">---</h1>
+        <div class="gentleman-day-portrait-wrap">
+          <img class="gentleman-day-portrait hidden" id="gentlemanDayPortrait" alt="Gentlement estratto" />
+          <div class="gentleman-day-portrait-placeholder" id="gentlemanDayPortraitPlaceholder">
+            Foto da impostare
+          </div>
+        </div>
+      </section>
+
+      <section class="screen screen-gentleman-day-question hidden" id="gentlemanDayQuestionScreen">
+        <p class="eyebrow">Il gentlement di oggi</p>
+        <h1 class="gentleman-day-name" id="gentlemanDayName">---</h1>
+        <p class="gentleman-day-progress" id="gentlemanDayProgress">Domanda 1/2</p>
+
+        <article class="gentleman-day-card">
+          <p class="bonus-label">Domanda</p>
+          <h2 id="gentlemanDayQuestionText">Domanda da impostare</h2>
+          <div class="gentleman-day-answers" id="gentlemanDayAnswers"></div>
+        </article>
+
+        <div class="gentleman-day-answer-timer" aria-hidden="true">
+          <span id="gentlemanDayAnswerTimerBar"></span>
+        </div>
+
+        <p class="host-only-note hidden" id="gentlemanDayQuestionHostOnlyNote">
+          Aspetta quel fico dell'host
+        </p>
+
+        <button class="primary-button gentleman-day-action hidden" id="continueGentlemanDay" type="button">
+          Vedi soluzione
+        </button>
+      </section>
+
+      <section class="screen screen-gentleman-day-result hidden" id="gentlemanDayResultScreen">
+        <p class="eyebrow">Soluzione</p>
+        <h1 class="gentlement-result-title">La risposta era...</h1>
+        <div class="gentlement-result-card">
+          <p>Risposta corretta</p>
+          <strong id="gentlemanDayCorrectAnswer">---</strong>
+          <span id="gentlemanDayUserAnswer">La tua risposta: ---</span>
+        </div>
+        <div class="gentlement-result-feedback" id="gentlemanDayResultFeedback"></div>
+        <p class="host-only-note hidden" id="gentlemanDayResultHostOnlyNote">
+          Aspetta quel fico dell'host
+        </p>
+        <button class="primary-button gentleman-day-action" id="continueGentlemanDayResult" type="button">
+          Prossima domanda
+        </button>
+      </section>
+
+      <section class="screen screen-gentleman-day-pit hidden" id="gentlemanDayPitFlameScreen">
+        <video
+          class="gentleman-day-pit-video"
+          id="gentlemanDayPitFlameVideo"
+          src="assets/gentleman-day-pit/video-fiamma-ops.mp4"
+          playsinline
+        ></video>
+      </section>
+
+      <section class="screen screen-gentleman-day-pit hidden" id="gentlemanDayPitVideoScreen">
+        <video
+          class="gentleman-day-pit-video"
+          id="gentlemanDayPitVideo"
+          src="assets/gentleman-day-pit/caduta-pozzo.mp4"
+          playsinline
+        ></video>
+      </section>
+
+      <section class="screen screen-gentleman-day-question screen-gentleman-day-pit-question hidden" id="gentlemanDayPitQuestionScreen">
+        <p class="eyebrow">Test della palude</p>
+        <p class="gentleman-day-progress" id="gentlemanDayPitPlayersText">---</p>
+
+        <article class="gentleman-day-card">
+          <p class="bonus-label">Domanda</p>
+          <h2 id="gentlemanDayPitQuestionText">Rispondi alla domanda del video</h2>
+          <div class="gentleman-day-answers" id="gentlemanDayPitAnswers"></div>
+        </article>
+
+        <p class="host-only-note hidden" id="gentlemanDayPitLockedNote">
+          Puoi guardare, ma non sei caduto nel pozzo.
+        </p>
+
+        <button class="primary-button gentleman-day-action" id="continueAfterGentlemanDayPit" type="button">
+          Mostra risultati
+        </button>
+      </section>
+
+      <section class="screen screen-gentleman-day-pit-result hidden" id="gentlemanDayPitResultScreen">
+        <p class="eyebrow">Risultati della palude</p>
+        <h1>Il fango ha parlato</h1>
+        <div class="pit-result-list" id="gentlemanDayPitResultList"></div>
+
+        <p class="host-only-note hidden" id="gentlemanDayPitResultLockedNote">
+          Aspetta che l'host vi tiri fuori dalla palude.
+        </p>
+
+        <button class="primary-button gentleman-day-action" id="continueAfterGentlemanDayPitResult" type="button">
+          Continua col round 3
+        </button>
+      </section>
+
+      <section class="screen screen-bonus-intro hidden" id="bonusIntroScreen">
+        <video
+          class="bonus-intro-video-bg"
+          id="bonusIntroVideoBg"
+          src="assets/bonus-intro/foto_con_audio_ritardo_3s.mp4"
+          playsinline
+          muted
+          aria-hidden="true"
+        ></video>
+        <video
+          class="bonus-intro-video"
+          id="bonusIntroVideo"
+          src="assets/bonus-intro/foto_con_audio_ritardo_3s.mp4"
+          playsinline
+        ></video>
+      </section>
+
+      <section class="screen screen-bonus hidden" id="bonusScreen">
+        <h1 class="bonus-title">Cultura gentelment</h1>
+        <p class="bonus-text">
+          Il primo che risponde correttamente si salva. Gli altri bevono 3 shot.
+        </p>
+
+        <div class="bonus-players">
+          <p class="bonus-label">Possono rispondere</p>
+          <div class="bonus-player-list" id="bonusPlayersList"></div>
+        </div>
+
+        <article class="bonus-card">
+          <p class="bonus-label">Domanda</p>
+          <div class="bonus-question-wrap is-blurred" id="bonusQuestionWrap">
+            <span class="bonus-countdown hidden" id="bonusCountdown">5</span>
+          <p class="bonus-question" id="bonusQuestionText">Domanda bonus</p>
+          </div>
+          <p class="bonus-locked hidden" id="bonusLockedText">
+            Puoi guardare, ma stavolta non puoi rispondere.
+          </p>
+          <div class="bonus-options" id="bonusOptions"></div>
+        </article>
+
+        <p class="host-only-note hidden" id="bonusHostOnlyNote">
+          Aspetta quel fico dell'host
+        </p>
+
+        <button class="primary-button bonus-reveal" id="revealBonusQuestion" type="button">
+          Mostra la domanda
+        </button>
+
+      </section>
+
+      <section class="screen screen-bonus-result hidden" id="bonusResultScreen">
+        <div class="fireworks" id="bonusFireworks" aria-hidden="true">
+          <span></span>
+          <span></span>
+          <span></span>
+          <span></span>
+        </div>
+        <h1 class="bonus-title bonus-award-title">Il sobrio numero 1</h1>
+
+        <div class="bonus-result-card">
+          <p class="bonus-label">Si salva</p>
+          <p class="bonus-winner" id="bonusWinnerText">---</p>
+        </div>
+
+        <div class="bonus-result-card">
+          <p class="bonus-label">Bevono 3 shot</p>
+          <div class="bonus-drinkers" id="bonusDrinkersList"></div>
+        </div>
+
+        <p class="host-only-note hidden" id="bonusResultHostOnlyNote">
+          Aspetta quel fico dell'host
+        </p>
+
+        <button class="primary-button bonus-continue hidden" id="continueAfterBonus" type="button">
+          Continua col round 6
+        </button>
+      </section>
+
+      <section class="screen screen-gentlement-intro hidden" id="gentlementIntroScreen">
+        <video
+          class="gentlement-intro-video"
+          id="gentlementIntroVideo"
+          src="assets/gentlement-intro-new/video_intro_sfondo_foto_senza_contrasto.mp4"
+          playsinline
+        ></video>
+      </section>
+
+      <section class="screen screen-gentlement-photo hidden" id="gentlementPhotoScreen">
+        <p class="eyebrow">Indovina il gentlement</p>
+        <h1 class="gentlement-game-title">Who's that Gentlement</h1>
+        <p class="gentlement-round-label" id="gentlementRoundLabel">Foto 1/3</p>
+        <audio id="gentlementFirstPhotoAudio" src="assets/gentlement-audio/first-photo-intro.m4a" preload="auto"></audio>
+        <audio id="gentlementSecondPhotoAudio" src="assets/gentlement-audio/second-photo-intro.m4a" preload="auto"></audio>
+        <audio id="gentlementPhotoAudio" src="assets/gentlement-audio/whos-that-gentlement.mp3" preload="auto"></audio>
+        <audio id="gentlementThirdPhotoAudio" src="assets/gentlement-audio/third-photo-intro.m4a" preload="auto"></audio>
+
+        <div class="gentlement-photo-stage" id="gentlementPhotoStage">
+          <img class="gentlement-photo hidden" id="gentlementPhoto" alt="Dettaglio del gentlement da indovinare">
+          <div class="gentlement-photo-placeholder" id="gentlementPhotoPlaceholder">
+            Qui metteremo la foto zoomata
+          </div>
+        </div>
+
+        <div class="gentlement-photo-timer">
+          <span id="gentlementPhotoTimer">10</span>
+        </div>
+      </section>
+
+      <section class="screen screen-gentlement-answers hidden" id="gentlementAnswersScreen">
+        <p class="eyebrow">Indovina il gentlement</p>
+        <h1 class="gentlement-game-title">Chi è?</h1>
+        <div class="gentlement-answer-grid" id="gentlementAnswerGrid"></div>
+        <div class="gentlement-answer-timer" aria-hidden="true">
+          <span id="gentlementAnswerTimerBar"></span>
+        </div>
+      </section>
+
+      <section class="screen screen-gentlement-result hidden" id="gentlementResultScreen">
+        <p class="eyebrow">Verdetto gentlement</p>
+        <h1 class="gentlement-result-title" id="gentlementResultTitle">Risultato</h1>
+        <div class="gentlement-result-card">
+          <p>Risposta corretta</p>
+          <strong id="gentlementCorrectAnswer">---</strong>
+          <span id="gentlementUserAnswer">La tua risposta: ---</span>
+        </div>
+        <div class="gentlement-result-feedback" id="gentlementResultFeedback"></div>
+        <button class="primary-button gentlement-next-button" id="gentlementNextButton" type="button">
+          Prossima foto
+        </button>
+        <p class="host-only-note hidden" id="gentlementResultHostOnlyNote">
+          Aspetta quel fico dell'host
+        </p>
+      </section>
+
+      <section class="screen screen-wheel hidden" id="wheelScreen">
+        <p class="eyebrow wheel-eyebrow">Ruota finale</p>
+        <h1 class="wheel-title">It's Crazy Time</h1>
+        <div class="gentlement-name-badge hidden" id="gentlementNameBadge"></div>
+        <p class="intro-text">
+          La ruota decide l'ultima penitenza della serata.
+        </p>
+
+        <div class="gentlement-slot hidden" id="gentlementSlot">
+          <p class="slot-label">Gentlement estratto</p>
+          <div class="slot-window">
+            <span id="gentlementSlotText">Pronti?</span>
+          </div>
+        </div>
+
+        <div class="wheel-stage">
+          <div class="wheel-pointer" aria-hidden="true"></div>
+          <div class="wheel" id="finalWheel">
+            <span class="wheel-divider divider-1" aria-hidden="true"></span>
+            <span class="wheel-divider divider-2" aria-hidden="true"></span>
+            <span class="wheel-divider divider-3" aria-hidden="true"></span>
+            <span class="wheel-divider divider-4" aria-hidden="true"></span>
+            <span class="wheel-divider divider-5" aria-hidden="true"></span>
+            <span class="wheel-divider divider-6" aria-hidden="true"></span>
+            <span class="wheel-label label-1">Amaro 🌶️</span>
+            <span class="wheel-label label-2">Hurricane</span>
+            <span class="wheel-label label-3">Shot 🪖</span>
+            <span class="wheel-label label-4">Sfida</span>
+            <span class="wheel-label label-5">Acqua + amaro</span>
+            <span class="wheel-label label-6">3 shot</span>
+            <button class="wheel-center" id="wheelCenterSpin" type="button">SPIN</button>
+          </div>
+        </div>
+
+        <div class="wheel-result hidden" id="wheelResult">
+          <p class="wheel-result-label">Penitenza finale</p>
+          <p id="wheelResultText">---</p>
+          <p class="secret-challenge-public hidden" id="secretChallengePublicText"></p>
+        </div>
+
+        <div class="secret-challenge-panel hidden" id="secretChallengePanel">
+          <label class="secret-challenge-label" for="secretChallengeSelect">
+            Scegli una sfida segreta
+          </label>
+          <select id="secretChallengeSelect">
+            <option value="0">Sfida segreta 1</option>
+            <option value="1">Sfida segreta 2</option>
+            <option value="2">Sfida segreta 3</option>
+          </select>
+          <button class="secret-challenge-button" id="revealSecretChallenge" type="button">
+            Rivela la sfida
+          </button>
+          <p class="secret-challenge-text hidden" id="secretChallengeText"></p>
+        </div>
+
+        <button class="small-host-button hidden" id="drawGentlement" type="button">
+          Estrai il gentlement
+        </button>
+        <button class="primary-button wheel-finish hidden" id="finishAfterWheel" type="button">
+          Vai alla classifica
+        </button>
+        <p class="wheel-finish-note hidden" id="finishAfterWheelNote">
+          l' host vi porterà alla classifica finale
+        </p>
+      </section>
+
+      <section class="screen screen-end hidden" id="endScreen">
+        <h1 class="final-title">Tabella finale</h1>
+        <p class="intro-text">
+          Guarda che ubriaconi che siete
+        </p>
+
+        <div class="final-players-block">
+          <p class="final-label">Shot e drink</p>
+          <div class="final-stats-head" aria-hidden="true">
+            <span></span>
+            <span class="final-stat-icon shot-icon"></span>
+            <span class="final-stat-icon drink-icon"></span>
+          </div>
+          <div class="final-players-list" id="rankingList"></div>
+        </div>
+
+        <button class="primary-button" id="backToLobby" type="button">
+          Vai al podio
+        </button>
+        <p class="podium-host-note hidden" id="podiumHostNote">
+          l' host vi porterà al podio
+        </p>
+      </section>
+
+      <section class="screen screen-podium hidden" id="podiumScreen">
+        <video
+          class="podium-suspense-video"
+          id="podiumSuspenseVideo"
+          src="assets/podium/rullo-video/video_rullo_tamburo_mani_movimento.mp4"
+          playsinline
+        ></video>
+      </section>
+
+      <section class="screen screen-podium-final hidden" id="podiumFinalScreen">
+        <h1 class="podium-final-title">Gli ubriaconi di stasera</h1>
+
+        <div class="podium-places" id="podiumPlaces"></div>
+
+        <button class="podium-finish-button" id="podiumFinishButton" type="button">Partita finita</button>
+      </section>
+      <audio
+        id="podiumRevealMusic"
+        src="assets/podium/big-win-music.mp3"
+        preload="auto"
+      ></audio>
+      <audio
+        id="podiumFirstPlaceAudio"
+        src="assets/podium/che-culo-first-place.m4a"
+        preload="auto"
+      ></audio>
+
+      <section class="screen screen-review hidden" id="reviewScreen">
+        <h1>Giudicatemi</h1>
+
+        <div class="review-stars" id="reviewStars" role="radiogroup" aria-label="Valutazione da 1 a 5 stelle">
+          <button type="button" data-rating="1" aria-label="1 stella">☆</button>
+          <button type="button" data-rating="2" aria-label="2 stelle">☆</button>
+          <button type="button" data-rating="3" aria-label="3 stelle">☆</button>
+          <button type="button" data-rating="4" aria-label="4 stelle">☆</button>
+          <button type="button" data-rating="5" aria-label="5 stelle">☆</button>
+        </div>
+
+        <label class="review-comment-label" for="reviewComment">Commento</label>
+        <textarea id="reviewComment" class="review-comment" rows="5" placeholder="Lascia un commento sulla serata..."></textarea>
+        <p class="review-thanks" id="reviewThanks">Dicci cosa cambiare o cosa aggiungere</p>
+        <button class="primary-button review-save-button" id="reviewSaveButton" type="button">Torna alla stanza</button>
+      </section>
+    </main>
+
+    <script src="script.js"></script>
+  </body>
+</html>

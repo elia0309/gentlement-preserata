@@ -1,0 +1,12 @@
+node_modules/
+npm-debug.log*
+.env
+.DS_Store
+Thumbs.db
+mobile-audit/
+mobile-fullscreen-check/
+qa-screenshots-mobile/
+preview-*.png
+preview-*.html
+debug-*.png
+loading-screen.png
