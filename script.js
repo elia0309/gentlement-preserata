@@ -1347,6 +1347,14 @@ function installHostVideoSafety(video, screenName, callback, fallbackMs, fallbac
   });
 }
 
+function scheduleFixedHostAdvance(screenName, callback, fallbackMs, fallbackSetter) {
+  if (!isHost) return;
+  const timeoutId = setTimeout(() => {
+    if (isHost && currentScreenName === screenName) callback();
+  }, fallbackMs);
+  fallbackSetter(timeoutId);
+}
+
 function renderGentlementPhotoScreen() {
   gentlementRoundLabel.textContent = `Foto ${gentlementGameRound}/${gentlementGameTotalRounds}`;
   gentlementPhotoTimer.textContent = gentlementPhotoSeconds;
@@ -3041,8 +3049,7 @@ function showGentlemanDayPitFlameVideo() {
   setScreen("gentlemanDayPitFlame");
   safelyPlayMedia(gentlemanDayPitFlameVideo);
   clearTimeout(gentlemanDayPitFlameFallbackId);
-  scheduleHostVideoFallback(
-    gentlemanDayPitFlameVideo,
+  scheduleFixedHostAdvance(
     "gentlemanDayPitFlame",
     showGentlemanDayPitVideo,
     6500,
@@ -3064,8 +3071,7 @@ function showGentlemanDayPitVideo() {
   setScreen("gentlemanDayPitVideo");
   safelyPlayMedia(gentlemanDayPitVideo);
   clearTimeout(gentlemanDayPitVideoFallbackId);
-  scheduleHostVideoFallback(
-    gentlemanDayPitVideo,
+  scheduleFixedHostAdvance(
     "gentlemanDayPitVideo",
     showGentlemanDayPitQuestion,
     12000,
