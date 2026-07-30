@@ -1355,6 +1355,13 @@ function scheduleFixedHostAdvance(screenName, callback, fallbackMs, fallbackSett
   fallbackSetter(timeoutId);
 }
 
+function advanceFromGentlementIntro() {
+  if (!isHost || currentScreenName !== "gentlementIntro") return;
+  clearTimeout(gentlementIntroFallbackId);
+  gentlementIntroFallbackId = null;
+  showNextGentlementPhoto();
+}
+
 function renderGentlementPhotoScreen() {
   gentlementRoundLabel.textContent = `Foto ${gentlementGameRound}/${gentlementGameTotalRounds}`;
   gentlementPhotoTimer.textContent = gentlementPhotoSeconds;
@@ -3498,10 +3505,9 @@ function showGentlementIntro() {
   gentlementIntroVideo.currentTime = 0;
   safelyPlayMedia(gentlementIntroVideo);
   clearTimeout(gentlementIntroFallbackId);
-  scheduleHostVideoFallback(
-    gentlementIntroVideo,
+  scheduleFixedHostAdvance(
     "gentlementIntro",
-    showNextGentlementPhoto,
+    advanceFromGentlementIntro,
     10000,
     (timeoutId) => {
       gentlementIntroFallbackId = timeoutId;
@@ -4370,12 +4376,12 @@ installHostVideoSafety(
 );
 
 gentlementIntroVideo.addEventListener("ended", () => {
-  if (isHost) showNextGentlementPhoto();
+  advanceFromGentlementIntro();
 });
 installHostVideoSafety(
   gentlementIntroVideo,
   "gentlementIntro",
-  showNextGentlementPhoto,
+  advanceFromGentlementIntro,
   10000,
   (timeoutId) => {
     clearTimeout(gentlementIntroFallbackId);
