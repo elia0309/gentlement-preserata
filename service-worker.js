@@ -1,4 +1,4 @@
-const CACHE_NAME = "gentlement-preserata-v2";
+const CACHE_NAME = "gentlement-preserata-v3";
 const CORE_ASSETS = [
   "/",
   "/index.html",
@@ -24,7 +24,13 @@ self.addEventListener("activate", (event) => {
 });
 
 self.addEventListener("fetch", (event) => {
-  if (event.request.method !== "GET" || new URL(event.request.url).pathname.startsWith("/api/")) {
+  const url = new URL(event.request.url);
+  const isApiRequest = url.pathname.startsWith("/api/");
+  const isMediaRequest = ["audio", "video"].includes(event.request.destination);
+  const isMediaFile = /\.(mp4|webm|mov|mp3|m4a|wav|ogg)$/i.test(url.pathname);
+  const isRangeRequest = event.request.headers.has("range");
+
+  if (event.request.method !== "GET" || isApiRequest || isMediaRequest || isMediaFile || isRangeRequest) {
     return;
   }
 

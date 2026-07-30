@@ -1306,6 +1306,15 @@ function playVisibleMedia(media, { reset = false, volume = null } = {}) {
   }
 }
 
+function safelyPlayMedia(media, { reset = false, volume = null } = {}) {
+  if (!media) return Promise.resolve(false);
+  if (typeof volume === "number") media.volume = volume;
+  if (reset) media.currentTime = 0;
+  return media.play()
+    .then(() => true)
+    .catch(() => false);
+}
+
 function scheduleHostVideoFallback(video, screenName, callback, fallbackMs, fallbackSetter) {
   if (!isHost) return;
   const durationMs = Number.isFinite(video?.duration) && video.duration > 0
@@ -1315,6 +1324,27 @@ function scheduleHostVideoFallback(video, screenName, callback, fallbackMs, fall
     if (isHost && currentScreenName === screenName) callback();
   }, durationMs);
   fallbackSetter(timeoutId);
+}
+
+function installHostVideoSafety(video, screenName, callback, fallbackMs, fallbackSetter) {
+  if (!video) return;
+  const recover = () => {
+    if (!isHost || currentScreenName !== screenName) return;
+    setTimeout(() => {
+      if (isHost && currentScreenName === screenName) callback();
+    }, 900);
+  };
+
+  ["error", "abort"].forEach((eventName) => {
+    video.addEventListener(eventName, recover);
+  });
+
+  video.addEventListener("stalled", () => {
+    if (!isHost || currentScreenName !== screenName) return;
+    setTimeout(() => {
+      if (isHost && currentScreenName === screenName && !video.ended) callback();
+    }, Math.min(fallbackMs, 3500));
+  });
 }
 
 function renderGentlementPhotoScreen() {
@@ -2289,7 +2319,7 @@ function showPodiumSuspense() {
   podiumTimeoutId = null;
   podiumSuspenseVideo.currentTime = 0;
   podiumSuspenseVideo.volume = 1;
-  podiumSuspenseVideo.play().catch(() => {});
+  safelyPlayMedia(podiumSuspenseVideo);
   clearTimeout(podiumSuspenseFallbackId);
   scheduleHostVideoFallback(
     podiumSuspenseVideo,
@@ -2469,15 +2499,19 @@ function unlockGameAudio() {
   ].forEach((video) => {
     if (!video) return;
     const wasMuted = video.muted;
-    video.muted = true;
+    const originalVolume = video.volume;
+    video.muted = false;
+    video.volume = 0;
     video.play()
       .then(() => {
         video.pause();
         video.currentTime = 0;
         video.muted = wasMuted;
+        video.volume = originalVolume;
       })
       .catch(() => {
         video.muted = wasMuted;
+        video.volume = originalVolume;
       });
   });
 
@@ -3005,7 +3039,7 @@ function showGentlemanDayPitFlameVideo() {
   gentlemanDayPitFlameVideo.currentTime = 0;
   gentlemanDayPitFlameVideo.volume = 0.9;
   setScreen("gentlemanDayPitFlame");
-  gentlemanDayPitFlameVideo.play().catch(() => {});
+  safelyPlayMedia(gentlemanDayPitFlameVideo);
   clearTimeout(gentlemanDayPitFlameFallbackId);
   scheduleHostVideoFallback(
     gentlemanDayPitFlameVideo,
@@ -3028,7 +3062,7 @@ function showGentlemanDayPitVideo() {
   gentlemanDayPitVideo.currentTime = 0;
   gentlemanDayPitVideo.volume = 1;
   setScreen("gentlemanDayPitVideo");
-  gentlemanDayPitVideo.play().catch(() => {});
+  safelyPlayMedia(gentlemanDayPitVideo);
   clearTimeout(gentlemanDayPitVideoFallbackId);
   scheduleHostVideoFallback(
     gentlemanDayPitVideo,
@@ -3388,8 +3422,8 @@ function showBonusIntro() {
   bonusIntroVideoBg.currentTime = 0;
   bonusIntroVideo.volume = 1;
   setScreen("bonusIntro");
-  bonusIntroVideoBg.play().catch(() => {});
-  bonusIntroVideo.play().catch(() => {});
+  safelyPlayMedia(bonusIntroVideoBg);
+  safelyPlayMedia(bonusIntroVideo);
   clearTimeout(bonusIntroFallbackId);
   scheduleHostVideoFallback(
     bonusIntroVideo,
@@ -3425,7 +3459,7 @@ function showGentlementIntro() {
   gentlementPhotoTimerId = null;
   setScreen("gentlementIntro");
   gentlementIntroVideo.currentTime = 0;
-  gentlementIntroVideo.play().catch(() => {});
+  safelyPlayMedia(gentlementIntroVideo);
   clearTimeout(gentlementIntroFallbackId);
   scheduleHostVideoFallback(
     gentlementIntroVideo,
@@ -4222,6 +4256,16 @@ backToLobbyButton.addEventListener("click", () => {
 podiumSuspenseVideo.addEventListener("ended", () => {
   if (isHost) showFinalPodium();
 });
+installHostVideoSafety(
+  podiumSuspenseVideo,
+  "podium",
+  showFinalPodium,
+  9000,
+  (timeoutId) => {
+    clearTimeout(podiumSuspenseFallbackId);
+    podiumSuspenseFallbackId = timeoutId;
+  },
+);
 
 showPenaltyButton.addEventListener("click", showPenalty);
 
@@ -4236,9 +4280,29 @@ continueGentlemanDayResultButton.addEventListener("click", continueAfterGentlema
 gentlemanDayPitFlameVideo.addEventListener("ended", () => {
   if (isHost) showGentlemanDayPitVideo();
 });
+installHostVideoSafety(
+  gentlemanDayPitFlameVideo,
+  "gentlemanDayPitFlame",
+  showGentlemanDayPitVideo,
+  6500,
+  (timeoutId) => {
+    clearTimeout(gentlemanDayPitFlameFallbackId);
+    gentlemanDayPitFlameFallbackId = timeoutId;
+  },
+);
 gentlemanDayPitVideo.addEventListener("ended", () => {
   if (isHost) showGentlemanDayPitQuestion();
 });
+installHostVideoSafety(
+  gentlemanDayPitVideo,
+  "gentlemanDayPitVideo",
+  showGentlemanDayPitQuestion,
+  12000,
+  (timeoutId) => {
+    clearTimeout(gentlemanDayPitVideoFallbackId);
+    gentlemanDayPitVideoFallbackId = timeoutId;
+  },
+);
 
 continueAfterGentlemanDayPitButton.addEventListener("click", () => {
   if (!isHost) return;
@@ -4257,10 +4321,30 @@ continueAfterBonusButton.addEventListener("click", continueAfterBonus);
 bonusIntroVideo.addEventListener("ended", () => {
   if (isHost) showBonusRound();
 });
+installHostVideoSafety(
+  bonusIntroVideo,
+  "bonusIntro",
+  showBonusRound,
+  11000,
+  (timeoutId) => {
+    clearTimeout(bonusIntroFallbackId);
+    bonusIntroFallbackId = timeoutId;
+  },
+);
 
 gentlementIntroVideo.addEventListener("ended", () => {
   if (isHost) showNextGentlementPhoto();
 });
+installHostVideoSafety(
+  gentlementIntroVideo,
+  "gentlementIntro",
+  showNextGentlementPhoto,
+  10000,
+  (timeoutId) => {
+    clearTimeout(gentlementIntroFallbackId);
+    gentlementIntroFallbackId = timeoutId;
+  },
+);
 
 gentlementNextButton.addEventListener("click", continueGentlementGame);
 
