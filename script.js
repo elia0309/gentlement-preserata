@@ -1039,10 +1039,13 @@ let gentlementAnswersByPlayer = {};
 let usedGentlementPhotoIndexes = [];
 let scoredGentlementMistakes = {};
 let timerIntervalId = null;
+let penaltySlotSpinIntervalId = null;
+let penaltySlotSpinTimeoutId = null;
 let remainingSeconds = 90;
 let responseCounts = {};
 let votesByPlayer = {};
 let currentPenalty = "";
+let penaltySpinStartedAt = 0;
 let penaltyCounts = {};
 let shotCounts = {};
 let drinkCounts = {};
@@ -1224,6 +1227,7 @@ function getSharedState(extraState = {}) {
     responseCounts,
     votesByPlayer,
     currentPenalty,
+    penaltySpinStartedAt,
     penaltyCounts,
     shotCounts,
     drinkCounts,
@@ -1461,7 +1465,10 @@ function renderSharedScreen(screenChanged = false) {
   }
 
   if (currentScreenName === "results") renderResults();
-  if (currentScreenName === "penalty") renderPenalty();
+  if (currentScreenName === "penalty") {
+    renderPenalty();
+    if (screenChanged) startPenaltySlotAnimation();
+  }
   if (currentScreenName === "unanimousPenalty") {
     unanimousAnswerText.textContent = `Risposta unanime: ${getUnanimousAnswer()}`;
     unanimousHostOnlyNote.classList.toggle("hidden", isHost);
@@ -1524,6 +1531,7 @@ function applyRoomPayload(room, playerId = currentPlayerId) {
   currentCard = remoteState.currentCard || currentCard;
   roundEndsAt = remoteState.roundEndsAt || roundEndsAt;
   currentPenalty = remoteState.currentPenalty || currentPenalty;
+  penaltySpinStartedAt = remoteState.penaltySpinStartedAt || penaltySpinStartedAt;
   bonusPlayed = Boolean(remoteState.bonusPlayed);
   gentlemanDayPlayed = Boolean(remoteState.gentlemanDayPlayed);
   selectedGentlemanDay = remoteState.selectedGentlemanDay || selectedGentlemanDay;
@@ -2429,6 +2437,14 @@ function setScreen(screenName) {
     gentlementThirdPhotoAudio.pause();
   }
 
+  if (screenName !== "penalty") {
+    clearInterval(penaltySlotSpinIntervalId);
+    clearTimeout(penaltySlotSpinTimeoutId);
+    penaltySlotSpinIntervalId = null;
+    penaltySlotSpinTimeoutId = null;
+    penaltySlotText.parentElement.classList.remove("is-spinning");
+  }
+
   if (screenName !== "gentlemanDayIntro") {
     clearTimeout(gentlemanDayIntroTimeoutId);
     gentlemanDayIntroTimeoutId = null;
@@ -2798,22 +2814,40 @@ function showPenalty() {
   }
 
   currentPenalty = penaltyOptions[Math.floor(Math.random() * penaltyOptions.length)];
+  penaltySpinStartedAt = Date.now();
   renderPenalty();
+  setScreen("penalty");
+  startPenaltySlotAnimation();
+}
+
+function startPenaltySlotAnimation() {
+  clearInterval(penaltySlotSpinIntervalId);
+  clearTimeout(penaltySlotSpinTimeoutId);
+
+  const elapsedMs = penaltySpinStartedAt ? Date.now() - penaltySpinStartedAt : 3500;
+  const remainingMs = Math.max(3500 - elapsedMs, 0);
+
+  if (!currentPenalty || remainingMs <= 0) {
+    penaltySlotText.parentElement.classList.remove("is-spinning");
+    setPenaltySlotDisplay(currentPenalty || "Pronti?");
+    return;
+  }
+
   penaltySlotText.textContent = "Pronti?";
   penaltySlotText.parentElement.classList.add("is-spinning");
-  setScreen("penalty");
 
-  let spinIndex = 0;
-  const spinIntervalId = setInterval(() => {
+  let spinIndex = Math.max(Math.floor(elapsedMs / 350), 0);
+  penaltySlotSpinIntervalId = setInterval(() => {
     setPenaltySlotDisplay(penaltyOptions[spinIndex % penaltyOptions.length]);
     spinIndex += 1;
   }, 350);
 
-  setTimeout(() => {
-    clearInterval(spinIntervalId);
+  penaltySlotSpinTimeoutId = setTimeout(() => {
+    clearInterval(penaltySlotSpinIntervalId);
+    penaltySlotSpinIntervalId = null;
     penaltySlotText.parentElement.classList.remove("is-spinning");
     setPenaltySlotDisplay(currentPenalty);
-  }, 3500);
+  }, remainingMs);
 }
 
 function setPenaltySlotDisplay(penalty) {
@@ -4098,7 +4132,7 @@ function recordAnswer(player) {
   renderAnswerOptions();
   publishSharedState({ votesByPlayer, responseCounts });
 
-  if (isHost && haveAllPlayersAnswered()) {
+  if (!isOnlineMultiplayer() && isHost && haveAllPlayersAnswered()) {
     finishRound();
   }
 }

@@ -288,6 +288,16 @@ async function handleApi(request, response, url) {
       });
     }
 
+    const isEarlyBaseRoundResult =
+      player.isHost
+      && incomingState.screen === "results"
+      && room.players.some((roomPlayer) => !nextState.votesByPlayer?.[roomPlayer.name])
+      && (!nextState.roundEndsAt || Date.now() < nextState.roundEndsAt);
+
+    if (isEarlyBaseRoundResult) {
+      nextState.screen = "game";
+    }
+
     room.state = {
       ...nextState,
       players: room.players.map((roomPlayer) => roomPlayer.name),
