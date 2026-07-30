@@ -1217,7 +1217,6 @@ function recomputeResponseCounts() {
 function getSharedState(extraState = {}) {
   return {
     screen: currentScreenName,
-    players: [...players],
     selectedMode,
     currentRound,
     currentCard,
@@ -1511,7 +1510,7 @@ function applyRoomPayload(room, playerId = currentPlayerId) {
 
   const remoteState = room.state || {};
   players.length = 0;
-  players.push(...(remoteState.players || room.players.map((player) => player.name)));
+  players.push(...room.players.map((player) => player.name));
 
   selectedMode = remoteState.selectedMode || selectedMode;
   currentRound = remoteState.currentRound || currentRound;
